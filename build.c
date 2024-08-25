@@ -28,24 +28,5 @@ typedef struct Context_Extra {
 #include "oogabooga/oogabooga.c"
 
 
-//
-// Comment & Uncomment these to swap projects (only include one at a time)
-//
-
-// This is a minimal starting point for new projects. Copy & rename to get started
-// #include "oogabooga/examples/minimal_game_loop.c"
-
-// #include "oogabooga/examples/text_rendering.c"
-// #include "oogabooga/examples/custom_logger.c"
-// #include "oogabooga/examples/renderer_stress_test.c"
-// #include "oogabooga/examples/tile_game.c"
-// #include "oogabooga/examples/audio_test.c"
-// #include "oogabooga/examples/custom_shader.c"
-// #include "oogabooga/examples/growing_array_example.c"
-// #include "oogabooga/examples/input_example.c"
-#include "oogabooga/examples/sprite_animation.c"
-
-// #include "oogabooga/examples/sanity_tests.c"
-
 // This is where you swap in your own project!
-// #include "entry_yourepicgamename.c"
+#include "entry_oogagoblin.c"
