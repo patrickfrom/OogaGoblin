@@ -120,7 +120,7 @@ int entry(int argc, char **argv)
 
     world = alloc(get_heap_allocator(), sizeof(World));
 
-    sprites[SPRITE_NIL] = (Sprite){.image = load_image_from_disk(STR("assets/missing_texture.png"), get_heap_allocator()), .size = v2(2.0, 2.0)};
+    sprites[SPRITE_NIL] = (Sprite){.image = load_image_from_disk(STR("assets/missing_texture.png"), get_heap_allocator()), .size = v2(5.0, 5.0)};
     sprites[SPRITE_PLAYER] = (Sprite){.image = load_image_from_disk(STR("assets/goblin.png"), get_heap_allocator()), .size = v2(5.0, 7.0)};
     sprites[SPRITE_ROCK0] = (Sprite){.image = load_image_from_disk(STR("assets/rock0.png"), get_heap_allocator()), .size = v2(5.0, 3.0)};
     sprites[SPRITE_ROCK1] = (Sprite){.image = load_image_from_disk(STR("assets/rock1.png"), get_heap_allocator()), .size = v2(5.0, 3.0)};
@@ -136,6 +136,17 @@ int entry(int argc, char **argv)
         entity->position = v2(get_random_float32_in_range(-25, 25), get_random_float32_in_range(-25, 25));
     }
 
+    Audio_Source goblin_miner_ost_source;
+    bool goblin_miner_ost = audio_open_source_load(&goblin_miner_ost_source, STR("assets/sounds/goblin_miner_ost.wav"), get_heap_allocator());
+    assert(goblin_miner_ost, "Could not load goblin_miner_ost.wav");
+
+    Audio_Player *song_player = audio_player_get_one();
+
+    audio_player_set_source(song_player, goblin_miner_ost_source);
+    audio_player_set_state(song_player, AUDIO_PLAYER_STATE_PLAYING);
+    audio_player_set_looping(song_player, true);
+    song_player->config.volume = 0.15f;
+
     float zoom = 18.5;
     Vector2 camera_position = v2(0, 0);
 
@@ -147,6 +158,7 @@ int entry(int argc, char **argv)
     {
         reset_temporary_storage();
 
+        // :delta
         float64 now = os_get_elapsed_seconds();
         float64 delta = now - last_time;
         if (delta < min_frametime)
