@@ -1,3 +1,5 @@
+#include "range.c"
+
 bool almost_equals(float a, float b, float epsilon)
 {
     return fabs(a - b) <= epsilon;
@@ -107,6 +109,45 @@ Sprite *get_sprite(SpriteId id)
     return &sprites[0];
 }
 
+Vector2 screen_to_world()
+{
+    float mouse_x = input_frame.mouse_x;
+    float mouse_y = input_frame.mouse_y;
+
+    Matrix4 projection = draw_frame.projection;
+    Matrix4 view = draw_frame.camera_xform;
+
+    float window_width = window.width;
+    float window_height = window.height;
+
+    float ndc_x = (mouse_x / (window_width * 0.5f)) - 1.0f;
+    float ndc_y = (mouse_y / (window_height * 0.5f)) - 1.0f;
+
+    Vector4 world_position = v4(ndc_x, ndc_y, 0, 1);
+    world_position = m4_transform(m4_inverse(projection), world_position);
+    world_position = m4_transform(view, world_position);
+
+    return (Vector2){world_position.x, world_position.y};
+}
+
+const int tile_width = 7;
+int world_to_tile_pos(float world_position)
+{
+    return world_position / (float)tile_width;
+}
+
+int tile_pos_to_world(int tile_position)
+{
+    return (float)tile_position * tile_width;
+}
+
+Vector2 v2_round_to_tile(Vector2 world_position)
+{
+    world_position.x = tile_pos_to_world(world_to_tile_pos(world_position.x));
+    world_position.y = tile_pos_to_world(world_to_tile_pos(world_position.y));
+    return world_position;
+}
+
 int entry(int argc, char **argv)
 {
     window.title = STR("Ooga Goblin");
@@ -133,7 +174,8 @@ int entry(int argc, char **argv)
     {
         Entity *entity = create_entity();
         setup_rock(entity);
-        entity->position = v2(get_random_float32_in_range(-25, 25), get_random_float32_in_range(-25, 25));
+        entity->position = v2(get_random_float32_in_range(-50, 50), get_random_float32_in_range(-50, 50));
+        entity->position = v2_round_to_tile(entity->position);
     }
 
     Audio_Source goblin_miner_ost_source;
@@ -146,6 +188,11 @@ int entry(int argc, char **argv)
     audio_player_set_state(song_player, AUDIO_PLAYER_STATE_PLAYING);
     audio_player_set_looping(song_player, true);
     song_player->config.volume = 0.15f;
+
+    Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
+    assert(font, "Failed to load C:/windows/fonts/arial.ttf");
+
+    const u32 font_height = 48;
 
     float zoom = 18.5;
     Vector2 camera_position = v2(0, 0);
@@ -168,6 +215,7 @@ int entry(int argc, char **argv)
             delta = now - last_time;
         }
         last_time = now;
+        os_update();
 
         draw_frame.projection = m4_make_orthographic_projection(
             window.width * -0.5f, window.width * 0.5f,
@@ -192,8 +240,6 @@ int entry(int argc, char **argv)
         {
             window.fullscreen = !window.fullscreen;
         }
-
-        os_update();
 
         // :player movement
         Vector2 input_axis = v2(0, 0);
@@ -221,6 +267,59 @@ int entry(int argc, char **argv)
 
         player_entity->position = v2_add(player_entity->position, v2_mulf(input_axis, 25.0 * delta));
 
+
+        // :tile rendering
+        {
+            int player_tile_x = world_to_tile_pos(player_entity->position.x);
+            int player_tile_y = world_to_tile_pos(player_entity->position.y);
+
+            const int tile_radius_x = 13;
+            const int tile_radius_y = 10;
+            for (int x = player_tile_x - tile_radius_x; x < player_tile_x + tile_radius_x; ++x)
+            {
+                for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; ++y)
+                {
+                    if ((x + (y % 2 == 0)) % 2 == 0)
+                    {
+                        float x_position = x * tile_width;
+                        float y_position = y * tile_width;
+                        draw_rect(v2(x_position, y_position), v2(tile_width, tile_width), hex_to_rgba(0x12173dFF));
+                    }
+                    else
+                    {
+                        float x_position = x * tile_width;
+                        float y_position = y * tile_width;
+                        draw_rect(v2((float)x_position + tile_width * -0.5f, y_position), v2(tile_width, tile_width), hex_to_rgba(0x293268FF));
+                    }
+                }
+            }
+        }
+
+        // :hover entities
+        {
+            Vector2 mouse_position = screen_to_world();
+
+            for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
+            {
+                Entity *entity = &world->entities[i];
+                if (!entity->is_valid)
+                    continue;
+
+                Sprite *sprite = get_sprite(entity->sprite_id);
+                Range2f bounds = range2f_make_bottom_center(sprite->size);
+                bounds = range2f_shift(bounds, entity->position);
+
+                Vector4 color = COLOR_GREEN;
+                color.a = 0.0f;
+                if (range2f_contains(bounds, mouse_position))
+                {
+                    color.a = 0.3f;
+                }
+
+                draw_rect(bounds.min, range2f_size(bounds), color);
+            }
+        }
+
         // :render
         for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
         {
@@ -238,6 +337,8 @@ int entry(int argc, char **argv)
                 xform = m4_translate(xform, v3(entity->position.x, entity->position.y, 0.0));
                 xform = m4_translate(xform, v3(size.x * -0.5, 0.0, 0.0));
                 draw_image_xform(sprite->image, xform, size, COLOR_WHITE);
+
+                draw_text(font, tprint(STR("%f, %f"), entity->position.x, entity->position.y), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_BLACK);
                 break;
             }
             }
