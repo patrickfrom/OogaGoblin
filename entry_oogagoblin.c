@@ -70,18 +70,21 @@ typedef enum EntityArchetype
     ARCH_MAX
 } EntityArchetype;
 
+typedef enum EntityFlag : unsigned char {
+    ENTITY_IS_VALID = 1 << 0,
+    ENTITY_RENDER_SPRITE = 1 << 1,
+    ENTITY_DESTROYABLE_WORLD_ITEM = 1 << 2,
+    ENTITY_IS_ITEM = 1 << 3,
+} EntityFlag;
 typedef struct Entity
 {
-    bool is_valid;
+    EntityFlag entity_flag;
     EntityArchetype archetype;
     Vector2 position;
 
-    bool render_sprite;
     SpriteId sprite_id;
 
     int health;
-
-    bool destroyable_world_item;
 } Entity;
 
 #define MAX_ENTITY_COUNT 1024
@@ -103,7 +106,7 @@ Entity *create_entity()
     for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
     {
         Entity *existing_entity = &world->entities[i];
-        if (!existing_entity->is_valid)
+        if (!(existing_entity->entity_flag & ENTITY_IS_VALID))
         {
             entity_found = existing_entity;
             break;
@@ -111,7 +114,7 @@ Entity *create_entity()
     }
 
     assert(entity_found, "No more free entities!");
-    entity_found->is_valid = true;
+    entity_found->entity_flag |= ENTITY_IS_VALID;
     return entity_found;
 }
 
@@ -125,7 +128,7 @@ void setup_rock(Entity *entity)
     entity->archetype = ARCH_ROCK0;
     entity->sprite_id = SPRITE_ROCK0;
     entity->health = rock_health;
-    entity->destroyable_world_item = true;
+    entity->entity_flag |= ENTITY_DESTROYABLE_WORLD_ITEM;
 }
 
 void setup_player(Entity *entity)
@@ -138,6 +141,7 @@ void setup_item_rock0_ore(Entity *entity)
 {
     entity->archetype = ARCH_ITEM_ROCK0_ORE;
     entity->sprite_id = SPRITE_ITEM_ROCK0_ORE;
+    entity->entity_flag |= ENTITY_IS_ITEM;
 }
 
 Vector2 screen_to_world()
@@ -334,7 +338,7 @@ int entry(int argc, char **argv)
             for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
             {
                 Entity *entity = &world->entities[i];
-                if (!entity->is_valid || !entity->destroyable_world_item)
+                if (!(entity->entity_flag & ENTITY_IS_VALID) || !(entity->entity_flag & ENTITY_DESTROYABLE_WORLD_ITEM))
                     continue;
 
                 int entity_tile_x = world_pos_to_tile_pos(entity->position.x);
@@ -381,7 +385,7 @@ int entry(int argc, char **argv)
         for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
         {
             Entity *entity = &world->entities[i];
-            if (!entity->is_valid)
+            if (!(entity->entity_flag & ENTITY_IS_VALID))
                 continue;
 
             switch (entity->archetype)
