@@ -1,5 +1,8 @@
 #include "range.c"
 
+const int tile_width = 7;
+const float entity_selection_radius = 6.0f;
+
 bool almost_equals(float a, float b, float epsilon)
 {
     return fabs(a - b) <= epsilon;
@@ -62,6 +65,11 @@ typedef struct World
     Entity entities[MAX_ENTITY_COUNT];
 } World;
 World *world = 0;
+
+typedef struct WorldFrame {
+    Entity *selected_entity;
+} WorldFrame;
+WorldFrame world_frame;
 
 Entity *create_entity()
 {
@@ -130,21 +138,20 @@ Vector2 screen_to_world()
     return (Vector2){world_position.x, world_position.y};
 }
 
-const int tile_width = 7;
-int world_to_tile_pos(float world_position)
+int world_pos_to_tile_pos(float world_position)
 {
-    return world_position / (float)tile_width;
+    return roundf(world_position / (float)tile_width);
 }
 
-int tile_pos_to_world(int tile_position)
+int tile_pos_to_world_pos(int tile_position)
 {
     return (float)tile_position * tile_width;
 }
 
 Vector2 v2_round_to_tile(Vector2 world_position)
 {
-    world_position.x = tile_pos_to_world(world_to_tile_pos(world_position.x));
-    world_position.y = tile_pos_to_world(world_to_tile_pos(world_position.y));
+    world_position.x = tile_pos_to_world_pos(world_pos_to_tile_pos(world_position.x));
+    world_position.y = tile_pos_to_world_pos(world_pos_to_tile_pos(world_position.y));
     return world_position;
 }
 
@@ -204,6 +211,7 @@ int entry(int argc, char **argv)
     while (!window.should_close)
     {
         reset_temporary_storage();
+        world_frame = (WorldFrame){0};
 
         // :delta
         float64 now = os_get_elapsed_seconds();
@@ -267,11 +275,14 @@ int entry(int argc, char **argv)
 
         player_entity->position = v2_add(player_entity->position, v2_mulf(input_axis, 25.0 * delta));
 
+        Vector2 mouse_position_world = screen_to_world();
+        int mouse_tile_x = world_pos_to_tile_pos(mouse_position_world.x);
+        int mouse_tile_y = world_pos_to_tile_pos(mouse_position_world.y);
 
         // :tile rendering
         {
-            int player_tile_x = world_to_tile_pos(player_entity->position.x);
-            int player_tile_y = world_to_tile_pos(player_entity->position.y);
+            int player_tile_x = world_pos_to_tile_pos(player_entity->position.x);
+            int player_tile_y = world_pos_to_tile_pos(player_entity->position.y);
 
             const int tile_radius_x = 13;
             const int tile_radius_y = 10;
@@ -279,25 +290,21 @@ int entry(int argc, char **argv)
             {
                 for (int y = player_tile_y - tile_radius_y; y < player_tile_y + tile_radius_y; ++y)
                 {
+
                     if ((x + (y % 2 == 0)) % 2 == 0)
                     {
                         float x_position = x * tile_width;
                         float y_position = y * tile_width;
-                        draw_rect(v2(x_position, y_position), v2(tile_width, tile_width), hex_to_rgba(0x12173dFF));
-                    }
-                    else
-                    {
-                        float x_position = x * tile_width;
-                        float y_position = y * tile_width;
-                        draw_rect(v2((float)x_position + tile_width * -0.5f, y_position), v2(tile_width, tile_width), hex_to_rgba(0x293268FF));
+                        Vector4 color = v4(0.1, 0.1, 0.1, 0.1);
+                        draw_rect(v2(x_position + (float)tile_width * -0.5f, y_position + (float)tile_width * -0.5f), v2(tile_width, tile_width), color);
                     }
                 }
             }
         }
 
-        // :hover entities
+        // :hover world pos
         {
-            Vector2 mouse_position = screen_to_world();
+            float smallest_distance = INFINITY;
 
             for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
             {
@@ -305,18 +312,17 @@ int entry(int argc, char **argv)
                 if (!entity->is_valid)
                     continue;
 
-                Sprite *sprite = get_sprite(entity->sprite_id);
-                Range2f bounds = range2f_make_bottom_center(sprite->size);
-                bounds = range2f_shift(bounds, entity->position);
+                int entity_tile_x = world_pos_to_tile_pos(entity->position.x);
+                int entity_tile_y = world_pos_to_tile_pos(entity->position.y);
 
-                Vector4 color = COLOR_GREEN;
-                color.a = 0.0f;
-                if (range2f_contains(bounds, mouse_position))
+                float distance = fabs(v2_dist(entity->position, mouse_position_world));
+                if (distance < entity_selection_radius)
                 {
-                    color.a = 0.3f;
+                    if (!world_frame.selected_entity || distance < smallest_distance) {
+                        world_frame.selected_entity = entity;
+                        smallest_distance = distance;
+                    }
                 }
-
-                draw_rect(bounds.min, range2f_size(bounds), color);
             }
         }
 
@@ -334,11 +340,18 @@ int entry(int argc, char **argv)
                 Sprite *sprite = get_sprite(entity->sprite_id);
                 Vector2 size = sprite->size;
                 Matrix4 xform = m4_scalar(1.0);
+                xform = m4_translate(xform, v3(0.0, tile_width * -0.5, 0.0));
                 xform = m4_translate(xform, v3(entity->position.x, entity->position.y, 0.0));
                 xform = m4_translate(xform, v3(size.x * -0.5, 0.0, 0.0));
-                draw_image_xform(sprite->image, xform, size, COLOR_WHITE);
 
-                draw_text(font, tprint(STR("%f, %f"), entity->position.x, entity->position.y), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_BLACK);
+                Vector4 color = COLOR_WHITE;
+                if (world_frame.selected_entity == entity) {
+                    color = COLOR_GREEN;
+                }
+
+                draw_image_xform(sprite->image, xform, size, color);
+                // debug pos
+                // draw_text(font, tprint(STR("%f, %f"), entity->position.x, entity->position.y), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_BLACK);
                 break;
             }
             }

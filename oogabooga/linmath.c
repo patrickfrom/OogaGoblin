@@ -126,6 +126,10 @@ inline float32 v2_cross(Vector2 a, Vector2 b) {
 inline float v2_dot(Vector2 a, Vector2 b) {
 	return simd_dot_product_float32_64((float*)&a, (float*)&b);
 }
+inline float v2_dist(Vector2 a, Vector2 b) {
+    return v2_length(v2_sub(a, b));
+}
+
 
 inline float32 v3_length(Vector3 a) {
     return sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
