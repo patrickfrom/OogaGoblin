@@ -22,6 +22,10 @@ bool f32_animate_to_target(float *value, float target, float delta, float rate)
     return false;
 }
 
+float sin_breathe(float time, float rate) {
+    return (sin(time * rate) + 1.0) / 2.0;
+}
+
 void v2_animate_to_target(Vector2 *value, Vector2 target, float delta, float rate)
 {
     f32_animate_to_target(&(value->x), target.x, delta, rate);
@@ -395,6 +399,9 @@ int entry(int argc, char **argv)
                 Sprite *sprite = get_sprite(entity->sprite_id);
                 Vector2 size = v2(sprite->image->width, sprite->image->height);
                 Matrix4 xform = m4_scalar(1.0);
+                if (entity->entity_flag & ENTITY_IS_ITEM) {
+                    xform = m4_translate(xform, v3(0.0, 2.0 * sin_breathe(now, 5.0f), 0.0));
+                }
                 xform = m4_translate(xform, v3(0.0, tile_width * -0.5, 0.0));
                 xform = m4_translate(xform, v3(entity->position.x, entity->position.y, 0.0));
                 xform = m4_translate(xform, v3(size.x * -0.5, 0.0, 0.0));
@@ -406,7 +413,6 @@ int entry(int argc, char **argv)
                 }
 
                 draw_image_xform(sprite->image, xform, size, color);
-                draw_text(font, tprint(STR("Health: %d"), entity->health), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_RED);
                 // debug pos
                 // draw_text(font, tprint(STR("%f, %f"), entity->position.x, entity->position.y), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_BLACK);
                 break;
