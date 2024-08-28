@@ -3,6 +3,8 @@
 const int tile_width = 7;
 const float entity_selection_radius = 6.0f;
 
+const int rock_health = 4;
+
 bool almost_equals(float a, float b, float epsilon)
 {
     return fabs(a - b) <= epsilon;
@@ -29,24 +31,43 @@ void v2_animate_to_target(Vector2 *value, Vector2 target, float delta, float rat
 typedef struct Sprite
 {
     Gfx_Image *image;
-    Vector2 size;
 } Sprite;
 typedef enum SpriteId
 {
     SPRITE_NIL,
     SPRITE_PLAYER,
+    SPRITE_FURNACE,
     SPRITE_ROCK0,
     SPRITE_ROCK1,
     SPRITE_ROCK2,
+    SPRITE_ITEM_ROCK0_ORE,
+    SPRITE_ITEM_ROCK1_ORE,
+    SPRITE_ITEM_ROCK2_ORE,
     SPRITE_MAX
 } SpriteId;
+Sprite sprites[SPRITE_MAX];
+Sprite *get_sprite(SpriteId id)
+{
+    if (id >= 0 && id < SPRITE_MAX)
+    {
+        return &sprites[id];
+    }
+
+    return &sprites[0];
+}
 
 typedef enum EntityArchetype
 {
     ARCH_NIL = 0,
-    ARCH_ROCK = 1,
+    ARCH_ROCK0 = 1,
     ARCH_TREE = 2,
-    ARCH_PLAYER = 3
+    ARCH_PLAYER = 3,
+
+    ARCH_ITEM_ROCK0_ORE = 4,
+    ARCH_ITEM_ROCK1_ORE = 5,
+    ARCH_ITEM_ROCK2_ORE = 6,
+
+    ARCH_MAX
 } EntityArchetype;
 
 typedef struct Entity
@@ -57,6 +78,10 @@ typedef struct Entity
 
     bool render_sprite;
     SpriteId sprite_id;
+
+    int health;
+
+    bool destroyable_world_item;
 } Entity;
 
 #define MAX_ENTITY_COUNT 1024
@@ -66,7 +91,8 @@ typedef struct World
 } World;
 World *world = 0;
 
-typedef struct WorldFrame {
+typedef struct WorldFrame
+{
     Entity *selected_entity;
 } WorldFrame;
 WorldFrame world_frame;
@@ -96,8 +122,10 @@ void destroy_entity(Entity *entity)
 
 void setup_rock(Entity *entity)
 {
-    entity->archetype = ARCH_ROCK;
+    entity->archetype = ARCH_ROCK0;
     entity->sprite_id = SPRITE_ROCK0;
+    entity->health = rock_health;
+    entity->destroyable_world_item = true;
 }
 
 void setup_player(Entity *entity)
@@ -106,15 +134,10 @@ void setup_player(Entity *entity)
     entity->sprite_id = SPRITE_PLAYER;
 }
 
-Sprite sprites[SPRITE_MAX];
-Sprite *get_sprite(SpriteId id)
+void setup_item_rock0_ore(Entity *entity)
 {
-    if (id >= 0 && id < SPRITE_MAX)
-    {
-        return &sprites[id];
-    }
-
-    return &sprites[0];
+    entity->archetype = ARCH_ITEM_ROCK0_ORE;
+    entity->sprite_id = SPRITE_ITEM_ROCK0_ORE;
 }
 
 Vector2 screen_to_world()
@@ -168,11 +191,13 @@ int entry(int argc, char **argv)
 
     world = alloc(get_heap_allocator(), sizeof(World));
 
-    sprites[SPRITE_NIL] = (Sprite){.image = load_image_from_disk(STR("assets/missing_texture.png"), get_heap_allocator()), .size = v2(5.0, 5.0)};
-    sprites[SPRITE_PLAYER] = (Sprite){.image = load_image_from_disk(STR("assets/goblin.png"), get_heap_allocator()), .size = v2(5.0, 7.0)};
-    sprites[SPRITE_ROCK0] = (Sprite){.image = load_image_from_disk(STR("assets/rock0.png"), get_heap_allocator()), .size = v2(5.0, 3.0)};
-    sprites[SPRITE_ROCK1] = (Sprite){.image = load_image_from_disk(STR("assets/rock1.png"), get_heap_allocator()), .size = v2(5.0, 3.0)};
-    sprites[SPRITE_ROCK2] = (Sprite){.image = load_image_from_disk(STR("assets/rock2.png"), get_heap_allocator()), .size = v2(5.0, 3.0)};
+    sprites[SPRITE_NIL] = (Sprite){.image    = load_image_from_disk(STR("res/sprites/missing_texture.png"), get_heap_allocator())};
+    sprites[SPRITE_PLAYER] = (Sprite){.image = load_image_from_disk(STR("res/sprites/goblin.png"), get_heap_allocator())};
+    sprites[SPRITE_ROCK0] = (Sprite){.image  = load_image_from_disk(STR("res/sprites/rock0.png"), get_heap_allocator())};
+    sprites[SPRITE_ROCK1] = (Sprite){.image  = load_image_from_disk(STR("res/sprites/rock1.png"), get_heap_allocator())};
+    sprites[SPRITE_ITEM_ROCK0_ORE] = (Sprite){.image  = load_image_from_disk(STR("res/sprites/item_rock0_ore.png"), get_heap_allocator())};
+    sprites[SPRITE_ITEM_ROCK1_ORE] = (Sprite){.image  = load_image_from_disk(STR("res/sprites/item_rock1_ore.png"), get_heap_allocator())};
+    sprites[SPRITE_ITEM_ROCK2_ORE] = (Sprite){.image  = load_image_from_disk(STR("res/sprites/item_rock2_ore.png"), get_heap_allocator())};
 
     Entity *player_entity = create_entity();
     setup_player(player_entity);
@@ -186,7 +211,7 @@ int entry(int argc, char **argv)
     }
 
     Audio_Source goblin_miner_ost_source;
-    bool goblin_miner_ost = audio_open_source_load(&goblin_miner_ost_source, STR("assets/sounds/goblin_miner_ost.wav"), get_heap_allocator());
+    bool goblin_miner_ost = audio_open_source_load(&goblin_miner_ost_source, STR("res/sounds/goblin_miner_ost.wav"), get_heap_allocator());
     assert(goblin_miner_ost, "Could not load goblin_miner_ost.wav");
 
     Audio_Player *song_player = audio_player_get_one();
@@ -309,7 +334,7 @@ int entry(int argc, char **argv)
             for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
             {
                 Entity *entity = &world->entities[i];
-                if (!entity->is_valid)
+                if (!entity->is_valid || !entity->destroyable_world_item)
                     continue;
 
                 int entity_tile_x = world_pos_to_tile_pos(entity->position.x);
@@ -318,9 +343,35 @@ int entry(int argc, char **argv)
                 float distance = fabs(v2_dist(entity->position, mouse_position_world));
                 if (distance < entity_selection_radius)
                 {
-                    if (!world_frame.selected_entity || distance < smallest_distance) {
+                    if (!world_frame.selected_entity || distance < smallest_distance)
+                    {
                         world_frame.selected_entity = entity;
                         smallest_distance = distance;
+                    }
+                }
+            }
+        }
+
+        // :click
+        {
+            Entity *selected_entity = world_frame.selected_entity;
+            if (is_key_just_pressed(MOUSE_BUTTON_LEFT))
+            {
+                consume_key_just_pressed(MOUSE_BUTTON_LEFT);
+                if (selected_entity)
+                {
+                    selected_entity->health--;
+                    if (selected_entity->health <= 0)
+                    {
+                        switch (selected_entity->archetype) {
+                            case ARCH_ROCK0: {
+                                Entity *entity = create_entity();
+                                setup_item_rock0_ore(entity);
+                                entity->position = selected_entity->position;
+                            } break;
+                            default: {}
+                        }
+                        destroy_entity(selected_entity);
                     }
                 }
             }
@@ -338,18 +389,20 @@ int entry(int argc, char **argv)
             default:
             {
                 Sprite *sprite = get_sprite(entity->sprite_id);
-                Vector2 size = sprite->size;
+                Vector2 size = v2(sprite->image->width, sprite->image->height);
                 Matrix4 xform = m4_scalar(1.0);
                 xform = m4_translate(xform, v3(0.0, tile_width * -0.5, 0.0));
                 xform = m4_translate(xform, v3(entity->position.x, entity->position.y, 0.0));
                 xform = m4_translate(xform, v3(size.x * -0.5, 0.0, 0.0));
 
                 Vector4 color = COLOR_WHITE;
-                if (world_frame.selected_entity == entity) {
+                if (world_frame.selected_entity == entity)
+                {
                     color = COLOR_GREEN;
                 }
 
                 draw_image_xform(sprite->image, xform, size, color);
+                draw_text(font, tprint(STR("Health: %d"), entity->health), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_RED);
                 // debug pos
                 // draw_text(font, tprint(STR("%f, %f"), entity->position.x, entity->position.y), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_BLACK);
                 break;
