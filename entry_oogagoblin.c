@@ -74,12 +74,14 @@ typedef enum EntityArchetype
     ARCH_MAX
 } EntityArchetype;
 
-typedef enum EntityFlag : unsigned char {
+typedef unsigned char EntityFlag;
+enum {
     ENTITY_IS_VALID = 1 << 0,
     ENTITY_RENDER_SPRITE = 1 << 1,
     ENTITY_DESTROYABLE_WORLD_ITEM = 1 << 2,
     ENTITY_IS_ITEM = 1 << 3,
-} EntityFlag;
+};
+
 typedef struct Entity
 {
     EntityFlag entity_flag;
@@ -118,7 +120,7 @@ Entity *create_entity()
     }
 
     assert(entity_found, "No more free entities!");
-    entity_found->entity_flag |= ENTITY_IS_VALID;
+    entity_found->entity_flag = ENTITY_IS_VALID;
     return entity_found;
 }
 
@@ -241,6 +243,7 @@ int entry(int argc, char **argv)
     const float64 min_frametime = 1.0 / fps_limit;
 
     float64 last_time = os_get_elapsed_seconds();
+    log("Size of EntityFlag: %d\n", sizeof(EntityFlag));
     while (!window.should_close)
     {
         reset_temporary_storage();
