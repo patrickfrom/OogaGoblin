@@ -3,6 +3,10 @@
 ///
 // Build config stuff
 
+// To enable extensions:
+// #define OOGABOOGA_ENABLE_EXTENSIONS   1
+// #define OOGABOOGA_EXTENSION_PARTICLES 1
+
 #define INITIAL_PROGRAM_MEMORY_SIZE MB(5)
 
 // You might want to increase this if you get a log warning saying the temporary storage was overflown.
