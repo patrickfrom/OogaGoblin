@@ -31,8 +31,5 @@ typedef struct Context_Extra {
 // Ooga booga needs to be included AFTER configuration and BEFORE the program code
 #include "oogabooga/oogabooga.c"
 
-// utils idk
-//#include "range.c"
-
 // This is where you swap in your own project!
 #include "entry_oogagoblin.c"

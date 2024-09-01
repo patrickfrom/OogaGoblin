@@ -54,6 +54,9 @@ Sprite *get_sprite(SpriteId id)
 {
     if (id >= 0 && id < SPRITE_MAX)
     {
+        if (!sprites[id].image)
+            return &sprites[0];
+
         return &sprites[id];
     }
 
@@ -64,15 +67,34 @@ typedef enum EntityArchetype
 {
     ARCH_NIL = 0,
     ARCH_ROCK0 = 1,
-    ARCH_TREE = 2,
-    ARCH_PLAYER = 3,
+    ARCH_ROCK1 = 2,
+    ARCH_ROCK2 = 3,
+    ARCH_TREE = 4,
+    ARCH_PLAYER = 5,
 
-    ARCH_ITEM_ROCK0_ORE = 4,
-    ARCH_ITEM_ROCK1_ORE = 5,
-    ARCH_ITEM_ROCK2_ORE = 6,
+    ARCH_ITEM_ROCK0_ORE = 6,
+    ARCH_ITEM_ROCK1_ORE = 7,
+    ARCH_ITEM_ROCK2_ORE = 8,
+
+    ARCH_FURNACE = 9,
 
     ARCH_MAX
 } EntityArchetype;
+
+SpriteId get_sprite_id_from_archetype(EntityArchetype archetype)
+{
+    switch (archetype)
+    {
+    case ARCH_ITEM_ROCK0_ORE:
+        return SPRITE_ITEM_ROCK0_ORE;
+    case ARCH_ITEM_ROCK1_ORE:
+        return SPRITE_ITEM_ROCK1_ORE;
+    case ARCH_ITEM_ROCK2_ORE:
+        return SPRITE_ITEM_ROCK2_ORE;
+    default:
+        return 0;
+    }
+}
 
 typedef unsigned char EntityFlag;
 enum
@@ -137,10 +159,26 @@ void destroy_entity(Entity *entity)
     memset(entity, 0, sizeof(Entity));
 }
 
-void setup_rock(Entity *entity)
+void setup_rock0(Entity *entity)
 {
     entity->archetype = ARCH_ROCK0;
     entity->sprite_id = SPRITE_ROCK0;
+    entity->health = rock_health;
+    entity->entity_flag |= ENTITY_DESTROYABLE_WORLD_ITEM;
+}
+
+void setup_rock1(Entity *entity)
+{
+    entity->archetype = ARCH_ROCK1;
+    entity->sprite_id = SPRITE_ROCK1;
+    entity->health = rock_health;
+    entity->entity_flag |= ENTITY_DESTROYABLE_WORLD_ITEM;
+}
+
+void setup_rock2(Entity *entity)
+{
+    entity->archetype = ARCH_ROCK2;
+    entity->sprite_id = SPRITE_ROCK2;
     entity->health = rock_health;
     entity->entity_flag |= ENTITY_DESTROYABLE_WORLD_ITEM;
 }
@@ -151,10 +189,30 @@ void setup_player(Entity *entity)
     entity->sprite_id = SPRITE_PLAYER;
 }
 
+void setup_furnace(Entity *entity)
+{
+    entity->archetype = ARCH_FURNACE;
+    entity->sprite_id = SPRITE_FURNACE;
+}
+
 void setup_item_rock0_ore(Entity *entity)
 {
     entity->archetype = ARCH_ITEM_ROCK0_ORE;
     entity->sprite_id = SPRITE_ITEM_ROCK0_ORE;
+    entity->entity_flag |= ENTITY_IS_ITEM;
+}
+
+void setup_item_rock1_ore(Entity *entity)
+{
+    entity->archetype = ARCH_ITEM_ROCK1_ORE;
+    entity->sprite_id = SPRITE_ITEM_ROCK1_ORE;
+    entity->entity_flag |= ENTITY_IS_ITEM;
+}
+
+void setup_item_rock2_ore(Entity *entity)
+{
+    entity->archetype = ARCH_ITEM_ROCK2_ORE;
+    entity->sprite_id = SPRITE_ITEM_ROCK2_ORE;
     entity->entity_flag |= ENTITY_IS_ITEM;
 }
 
@@ -199,8 +257,8 @@ Vector2 v2_round_to_tile(Vector2 world_position)
 int entry(int argc, char **argv)
 {
     window.title = STR("Ooga Goblin");
-    window.scaled_width = 1280;
-    window.scaled_height = 720;
+    window.scaled_width = 1920;
+    window.scaled_height = 1080;
     window.x = 200;
     window.y = 90;
     window.clear_color = hex_to_rgba(0x12173DFF);
@@ -213,12 +271,16 @@ int entry(int argc, char **argv)
     sprites[SPRITE_PLAYER] = (Sprite){.image = load_image_from_disk(STR("res/sprites/goblin.png"), get_heap_allocator())};
     sprites[SPRITE_ROCK0] = (Sprite){.image = load_image_from_disk(STR("res/sprites/rock0.png"), get_heap_allocator())};
     sprites[SPRITE_ROCK1] = (Sprite){.image = load_image_from_disk(STR("res/sprites/rock1.png"), get_heap_allocator())};
+    sprites[SPRITE_ROCK2] = (Sprite){.image = load_image_from_disk(STR("res/sprites/rock2.png"), get_heap_allocator())};
     sprites[SPRITE_ITEM_ROCK0_ORE] = (Sprite){.image = load_image_from_disk(STR("res/sprites/item_rock0_ore.png"), get_heap_allocator())};
     sprites[SPRITE_ITEM_ROCK1_ORE] = (Sprite){.image = load_image_from_disk(STR("res/sprites/item_rock1_ore.png"), get_heap_allocator())};
     sprites[SPRITE_ITEM_ROCK2_ORE] = (Sprite){.image = load_image_from_disk(STR("res/sprites/item_rock2_ore.png"), get_heap_allocator())};
+    sprites[SPRITE_FURNACE] = (Sprite){.image = load_image_from_disk(STR("res/sprites/furnace.png"), get_heap_allocator())};
 
     {
         world->inventory_items[ARCH_ITEM_ROCK0_ORE].amount = 5;
+        world->inventory_items[ARCH_ITEM_ROCK1_ORE].amount = 3;
+        world->inventory_items[ARCH_ITEM_ROCK2_ORE].amount = 3;
     }
 
     Entity *player_entity = create_entity();
@@ -227,8 +289,32 @@ int entry(int argc, char **argv)
     for (int i = 0; i < 10; i++)
     {
         Entity *entity = create_entity();
-        setup_rock(entity);
+        setup_rock0(entity);
         entity->position = v2(get_random_float32_in_range(-50, 50), get_random_float32_in_range(-50, 50));
+        entity->position = v2_round_to_tile(entity->position);
+    }
+
+    for (int i = 0; i < 3; i++)
+    {
+        Entity *entity = create_entity();
+        setup_rock1(entity);
+        entity->position = v2(get_random_float32_in_range(-50, 50), get_random_float32_in_range(-50, 50));
+        entity->position = v2_round_to_tile(entity->position);
+    }
+
+    for (int i = 0; i < 5; i++)
+    {
+        Entity *entity = create_entity();
+        setup_rock2(entity);
+        entity->position = v2(get_random_float32_in_range(-50, 50), get_random_float32_in_range(-50, 50));
+        entity->position = v2_round_to_tile(entity->position);
+    }
+
+    // :test furnace
+    {
+        Entity *entity = create_entity();
+        setup_furnace(entity);
+        entity->position = v2(5, 5);
         entity->position = v2_round_to_tile(entity->position);
     }
 
@@ -286,42 +372,6 @@ int entry(int argc, char **argv)
             draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_translation(v3(camera_position.x, camera_position.y, 0)));
             draw_frame.camera_xform = m4_mul(draw_frame.camera_xform, m4_make_scale(v3(1.0 / zoom, 1.0 / zoom, 1.0)));
         }
-
-        if (is_key_just_pressed(KEY_ESCAPE))
-        {
-            window.should_close = true;
-        }
-
-        if (is_key_just_pressed(KEY_F11))
-        {
-            window.fullscreen = !window.fullscreen;
-        }
-
-        // :player movement
-        Vector2 input_axis = v2(0, 0);
-        if (is_key_down('A'))
-        {
-            input_axis.x -= 1.0;
-        }
-
-        if (is_key_down('D'))
-        {
-            input_axis.x += 1.0;
-        }
-
-        if (is_key_down('S'))
-        {
-            input_axis.y -= 1.0;
-        }
-
-        if (is_key_down('W'))
-        {
-            input_axis.y += 1.0;
-        }
-
-        input_axis = v2_normalize(input_axis);
-
-        player_entity->position = v2_add(player_entity->position, v2_mulf(input_axis, 25.0 * delta));
 
         Vector2 mouse_position_world = screen_to_world();
         int mouse_tile_x = world_pos_to_tile_pos(mouse_position_world.x);
@@ -390,7 +440,8 @@ int entry(int argc, char **argv)
                     v2_animate_to_target(&entity->position, target_position, delta, 15.0f);
 
                     float distance = fabsf(v2_dist(entity->position, target_position));
-                    if (distance < player_pickup_radius) {
+                    if (distance < player_pickup_radius)
+                    {
                         world->inventory_items[entity->archetype].amount++;
                         destroy_entity(entity);
                     }
@@ -418,6 +469,20 @@ int entry(int argc, char **argv)
                             entity->position = selected_entity->position;
                         }
                         break;
+                        case ARCH_ROCK1:
+                        {
+                            Entity *entity = create_entity();
+                            setup_item_rock1_ore(entity);
+                            entity->position = selected_entity->position;
+                        }
+                        break;
+                        case ARCH_ROCK2:
+                        {
+                            Entity *entity = create_entity();
+                            setup_item_rock2_ore(entity);
+                            entity->position = selected_entity->position;
+                        }
+                        break;
                         default:
                         {
                         }
@@ -428,7 +493,7 @@ int entry(int argc, char **argv)
             }
         }
 
-        // :render
+        // :render entities
         for (int i = 0; i < MAX_ENTITY_COUNT; ++i)
         {
             Entity *entity = &world->entities[i];
@@ -463,6 +528,97 @@ int entry(int argc, char **argv)
             }
             }
         }
+
+        // :render ui
+        {
+            float width = 120.0;
+            float height = 67.5;
+            draw_frame.camera_xform = m4_scalar(1.0);
+            draw_frame.projection = m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
+            float y_pos = 35.0;
+
+            int item_count = 0;
+            for (int i = 0; i < ARCH_MAX; i++)
+            {
+                ItemData *item = &world->inventory_items[i];
+                if (item->amount <= 0)
+                    continue;
+
+                item_count++;
+            }
+
+            const float icon_size = 8.0;
+            float icon_width = icon_size;
+
+            const int icon_row_count = 8;
+            float box_width = icon_row_count * icon_width;
+            float x_start_pos = (width / 2.0) - (box_width / 2.0);
+
+            // Inventory Background
+            {
+                Matrix4 xform = m4_identity();
+                xform = m4_translate(xform, v3(x_start_pos, y_pos, 0.0));
+                draw_rect_xform(xform, v2(box_width, icon_width), v4(0.0, 0.0, 0.0, 0.25));
+            }
+
+            int slot_index = 0;
+            for (int i = 0; i < ARCH_MAX; i++)
+            {
+                ItemData *item = &world->inventory_items[i];
+                if (item->amount <= 0)
+                    continue;
+
+                float slot_index_offset = slot_index * icon_width;
+
+                Sprite *sprite = get_sprite(get_sprite_id_from_archetype(i));
+
+                Matrix4 xform = m4_scalar(1.0);
+                xform = m4_translate(xform, v3(x_start_pos + slot_index_offset, y_pos, 0.0));
+
+                draw_rect_xform(xform, v2(icon_size, icon_size), v4(1.0, 1.0, 1.0, 0.15));
+
+                xform = m4_translate(xform, v3(icon_width * 0.5, icon_width * 0.5, 0.0));
+                xform = m4_translate(xform, v3(sprite->image->width * -0.5, sprite->image->height * -0.5, 0.0));
+                draw_image_xform(sprite->image, xform, v2(sprite->image->width, sprite->image->height), COLOR_WHITE);
+                slot_index++;
+            }
+        }
+
+        if (is_key_just_pressed(KEY_ESCAPE))
+        {
+            window.should_close = true;
+        }
+
+        if (is_key_just_pressed(KEY_F11))
+        {
+            window.fullscreen = !window.fullscreen;
+        }
+
+        // :player movement
+        Vector2 input_axis = v2(0, 0);
+        if (is_key_down('A'))
+        {
+            input_axis.x -= 1.0;
+        }
+
+        if (is_key_down('D'))
+        {
+            input_axis.x += 1.0;
+        }
+
+        if (is_key_down('S'))
+        {
+            input_axis.y -= 1.0;
+        }
+
+        if (is_key_down('W'))
+        {
+            input_axis.y += 1.0;
+        }
+
+        input_axis = v2_normalize(input_axis);
+
+        player_entity->position = v2_add(player_entity->position, v2_mulf(input_axis, 25.0 * delta));
 
         gfx_update();
     }
