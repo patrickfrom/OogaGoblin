@@ -1,6 +1,6 @@
 const int tile_width = 7;
 const float entity_selection_radius = 6.0f;
-const float player_pickup_radius = 3.0f;
+const float player_pickup_radius = 12.0f;
 
 const int rock_health = 4;
 
@@ -30,6 +30,28 @@ void v2_animate_to_target(Vector2 *value, Vector2 target, float delta, float rat
 {
     f32_animate_to_target(&(value->x), target.x, delta, rate);
     f32_animate_to_target(&(value->y), target.y, delta, rate);
+}
+
+Draw_Quad ndc_quad_to_screen_quad(Draw_Quad ndc_quad)
+{
+    Matrix4 proj = draw_frame.projection;
+    Matrix4 view = draw_frame.camera_xform;
+
+    Matrix4 ndc_to_screen_space = m4_identity();
+    ndc_to_screen_space = m4_mul(ndc_to_screen_space, m4_inverse(proj));
+    ndc_to_screen_space = m4_mul(ndc_to_screen_space, view);
+
+    ndc_quad.bottom_left = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.bottom_left), 0, 1)).xy;
+    ndc_quad.bottom_right = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.bottom_right), 0, 1)).xy;
+    ndc_quad.top_left = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.top_left), 0, 1)).xy;
+    ndc_quad.top_right = m4_transform(ndc_to_screen_space, v4(v2_expand(ndc_quad.top_right), 0, 1)).xy;
+
+    return ndc_quad;
+}
+
+Range2f quad_to_range(Draw_Quad quad)
+{
+    return (Range2f){quad.bottom_left, quad.top_right};
 }
 
 typedef struct Sprite
@@ -80,6 +102,21 @@ typedef enum EntityArchetype
 
     ARCH_MAX
 } EntityArchetype;
+
+string get_archetype_pretty_name(EntityArchetype archetype)
+{
+    switch (archetype)
+    {
+    case ARCH_ITEM_ROCK0_ORE:
+        return STR("Red Ore");
+    case ARCH_ITEM_ROCK1_ORE:
+        return STR("Blue Ore");
+    case ARCH_ITEM_ROCK2_ORE:
+        return STR("Green Ore");
+    default:
+        return STR("nil");
+    }
+}
 
 SpriteId get_sprite_id_from_archetype(EntityArchetype archetype)
 {
@@ -216,6 +253,23 @@ void setup_item_rock2_ore(Entity *entity)
     entity->entity_flag |= ENTITY_IS_ITEM;
 }
 
+Vector2 get_mouse_pos_in_ndc()
+{
+    float mouse_x = input_frame.mouse_x;
+    float mouse_y = input_frame.mouse_y;
+
+    Matrix4 projection = draw_frame.projection;
+    Matrix4 view = draw_frame.camera_xform;
+
+    float window_width = window.width;
+    float window_height = window.height;
+
+    float ndc_x = (mouse_x / (window_width * 0.5f)) - 1.0f;
+    float ndc_y = (mouse_y / (window_height * 0.5f)) - 1.0f;
+
+    return (Vector2){ndc_x, ndc_y};
+}
+
 Vector2 screen_to_world()
 {
     float mouse_x = input_frame.mouse_x;
@@ -267,6 +321,7 @@ int entry(int argc, char **argv)
 
     world = alloc(get_heap_allocator(), sizeof(World));
 
+    // :sprites
     sprites[SPRITE_NIL] = (Sprite){.image = load_image_from_disk(STR("res/sprites/missing_texture.png"), get_heap_allocator())};
     sprites[SPRITE_PLAYER] = (Sprite){.image = load_image_from_disk(STR("res/sprites/goblin.png"), get_heap_allocator())};
     sprites[SPRITE_ROCK0] = (Sprite){.image = load_image_from_disk(STR("res/sprites/rock0.png"), get_heap_allocator())};
@@ -277,10 +332,22 @@ int entry(int argc, char **argv)
     sprites[SPRITE_ITEM_ROCK2_ORE] = (Sprite){.image = load_image_from_disk(STR("res/sprites/item_rock2_ore.png"), get_heap_allocator())};
     sprites[SPRITE_FURNACE] = (Sprite){.image = load_image_from_disk(STR("res/sprites/furnace.png"), get_heap_allocator())};
 
+    // :audio
+    Audio_Source goblin_miner_ost_source;
+
+    bool goblin_miner_ost = audio_open_source_load(&goblin_miner_ost_source, STR("res/sounds/goblin_miner_ost.wav"), get_heap_allocator());
+    assert(goblin_miner_ost, "Could not load goblin_miner_ost.wav");
+
+    Audio_Player *song_player = audio_player_get_one();
+
+    audio_player_set_source(song_player, goblin_miner_ost_source);
+    audio_player_set_state(song_player, AUDIO_PLAYER_STATE_PLAYING);
+    audio_player_set_looping(song_player, true);
+    song_player->config.volume = 0.15f;
+
+    // :item test
     {
         world->inventory_items[ARCH_ITEM_ROCK0_ORE].amount = 5;
-        world->inventory_items[ARCH_ITEM_ROCK1_ORE].amount = 3;
-        world->inventory_items[ARCH_ITEM_ROCK2_ORE].amount = 3;
     }
 
     Entity *player_entity = create_entity();
@@ -317,17 +384,6 @@ int entry(int argc, char **argv)
         entity->position = v2(5, 5);
         entity->position = v2_round_to_tile(entity->position);
     }
-
-    Audio_Source goblin_miner_ost_source;
-    bool goblin_miner_ost = audio_open_source_load(&goblin_miner_ost_source, STR("res/sounds/goblin_miner_ost.wav"), get_heap_allocator());
-    assert(goblin_miner_ost, "Could not load goblin_miner_ost.wav");
-
-    Audio_Player *song_player = audio_player_get_one();
-
-    audio_player_set_source(song_player, goblin_miner_ost_source);
-    audio_player_set_state(song_player, AUDIO_PLAYER_STATE_PLAYING);
-    audio_player_set_looping(song_player, true);
-    song_player->config.volume = 0.15f;
 
     Gfx_Font *font = load_font_from_disk(STR("C:/windows/fonts/arial.ttf"), get_heap_allocator());
     assert(font, "Failed to load C:/windows/fonts/arial.ttf");
@@ -436,11 +492,16 @@ int entry(int argc, char **argv)
                 // :item pickup
                 if (entity->entity_flag & ENTITY_IS_ITEM)
                 {
-                    Vector2 target_position = player_entity->position;
-                    v2_animate_to_target(&entity->position, target_position, delta, 15.0f);
 
+                    Vector2 target_position = player_entity->position;
                     float distance = fabsf(v2_dist(entity->position, target_position));
                     if (distance < player_pickup_radius)
+                    {
+
+                        v2_animate_to_target(&entity->position, target_position, delta, 15.0f);
+                    }
+
+                    if (distance < 1.0)
                     {
                         world->inventory_items[entity->archetype].amount++;
                         destroy_entity(entity);
@@ -506,7 +567,7 @@ int entry(int argc, char **argv)
             {
                 Sprite *sprite = get_sprite(entity->sprite_id);
                 Vector2 size = v2(sprite->image->width, sprite->image->height);
-                Matrix4 xform = m4_scalar(1.0);
+                Matrix4 xform = m4_identity();
                 if (entity->entity_flag & ENTITY_IS_ITEM)
                 {
                     xform = m4_translate(xform, v3(0.0, 2.0 * sin_breathe(now, 5.0f), 0.0));
@@ -522,6 +583,7 @@ int entry(int argc, char **argv)
                 }
 
                 draw_image_xform(sprite->image, xform, size, color);
+
                 // debug pos
                 // draw_text(font, tprint(STR("%f, %f"), entity->position.x, entity->position.y), font_height, v2(entity->position.x, entity->position.y - 1.5f), v2(0.05f, 0.05f), COLOR_BLACK);
                 break;
@@ -533,54 +595,121 @@ int entry(int argc, char **argv)
         {
             float width = 120.0;
             float height = 67.5;
-            draw_frame.camera_xform = m4_scalar(1.0);
+            draw_frame.camera_xform = m4_identity();
             draw_frame.projection = m4_make_orthographic_projection(0.0, width, 0.0, height, -1, 10);
-            float y_pos = 35.0;
-
-            int item_count = 0;
-            for (int i = 0; i < ARCH_MAX; i++)
+            // :inventory rendering
+            if (false)
             {
-                ItemData *item = &world->inventory_items[i];
-                if (item->amount <= 0)
-                    continue;
+                float y_pos = 35.0;
 
-                item_count++;
-            }
+                int item_count = 0;
+                for (int i = 0; i < ARCH_MAX; i++)
+                {
+                    ItemData *item = &world->inventory_items[i];
+                    if (item->amount <= 0)
+                        continue;
 
-            const float icon_size = 8.0;
-            float icon_width = icon_size;
+                    item_count++;
+                }
 
-            const int icon_row_count = 8;
-            float box_width = icon_row_count * icon_width;
-            float x_start_pos = (width / 2.0) - (box_width / 2.0);
+                const float icon_size = 8.0;
+                float icon_width = icon_size;
 
-            // Inventory Background
-            {
-                Matrix4 xform = m4_identity();
-                xform = m4_translate(xform, v3(x_start_pos, y_pos, 0.0));
-                draw_rect_xform(xform, v2(box_width, icon_width), v4(0.0, 0.0, 0.0, 0.25));
-            }
+                const int icon_row_count = 8;
+                float box_width = icon_row_count * icon_width;
+                float x_start_pos = (width / 2.0) - (box_width / 2.0);
 
-            int slot_index = 0;
-            for (int i = 0; i < ARCH_MAX; i++)
-            {
-                ItemData *item = &world->inventory_items[i];
-                if (item->amount <= 0)
-                    continue;
+                // Inventory Background
+                {
+                    Matrix4 xform = m4_identity();
+                    xform = m4_translate(xform, v3(x_start_pos, y_pos, 0.0));
+                    draw_rect_xform(xform, v2(box_width, icon_width), v4(0.0, 0.0, 0.0, 0.25));
+                }
 
-                float slot_index_offset = slot_index * icon_width;
+                int slot_index = 0;
+                for (int i = 0; i < ARCH_MAX; i++)
+                {
+                    ItemData *item = &world->inventory_items[i];
+                    if (item->amount <= 0)
+                        continue;
 
-                Sprite *sprite = get_sprite(get_sprite_id_from_archetype(i));
+                    float slot_index_offset = slot_index * icon_width;
 
-                Matrix4 xform = m4_scalar(1.0);
-                xform = m4_translate(xform, v3(x_start_pos + slot_index_offset, y_pos, 0.0));
+                    Sprite *sprite = get_sprite(get_sprite_id_from_archetype(i));
 
-                draw_rect_xform(xform, v2(icon_size, icon_size), v4(1.0, 1.0, 1.0, 0.15));
+                    Matrix4 xform = m4_identity();
+                    xform = m4_translate(xform, v3(x_start_pos + slot_index_offset, y_pos, 0.0));
 
-                xform = m4_translate(xform, v3(icon_width * 0.5, icon_width * 0.5, 0.0));
-                xform = m4_translate(xform, v3(sprite->image->width * -0.5, sprite->image->height * -0.5, 0.0));
-                draw_image_xform(sprite->image, xform, v2(sprite->image->width, sprite->image->height), COLOR_WHITE);
-                slot_index++;
+                    float is_selected_alpha = 0.0;
+                    Draw_Quad *quad = draw_rect_xform(xform, v2(8, 8), v4(1, 1, 1, 0.2));
+                    Range2f icon_box = quad_to_range(*quad);
+                    if (range2f_contains(icon_box, get_mouse_pos_in_ndc()))
+                    {
+                        is_selected_alpha = 1.0;
+                    }
+
+                    Matrix4 box_bottom_right_xform = xform;
+
+                    xform = m4_translate(xform, v3(icon_width * 0.5, icon_width * 0.5, 0.0));
+
+                    // :item selected animation
+                    if (is_selected_alpha)
+                    {
+                        float scale_adjust = 0.2 * sin_breathe(os_get_elapsed_seconds(), 5.0);
+                        xform = m4_scale(xform, v3(1 + scale_adjust, 1 + scale_adjust, 1));
+                    }
+
+                    xform = m4_translate(xform, v3(sprite->image->width * -0.5, sprite->image->height * -0.5, 0.0));
+                    draw_image_xform(sprite->image, xform, v2(sprite->image->width, sprite->image->height), COLOR_WHITE);
+
+                    // :tooltip
+                    if (is_selected_alpha)
+                    {
+                        Draw_Quad screen_quad = ndc_quad_to_screen_quad(*quad);
+                        Range2f screen_range = quad_to_range(screen_quad);
+                        Vector2 icon_center = range2f_get_center(screen_range);
+
+                        Matrix4 xform = m4_identity();
+
+                        Vector2 box_size = v2(20, 14);
+
+                        xform = m4_translate(xform, v3(box_size.x * -0.5, -box_size.y - icon_width * 0.5, 0));
+                        xform = m4_translate(xform, v3(icon_center.x, icon_center.y, 0));
+                        draw_rect_xform(xform, box_size, v4(0.0, 0.0, 0.0, 0.25));
+
+                        float current_y_pos = icon_center.y;
+                        {
+                            string title = get_archetype_pretty_name(i);
+                            Gfx_Text_Metrics metrics = measure_text(font, title, font_height, v2(0.1, 0.1));
+                            Vector2 draw_pos = icon_center;
+                            draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+                            draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -1.0))); // top center
+
+                            draw_pos = v2_add(draw_pos, v2(0, icon_width * -0.5));
+                            draw_pos = v2_add(draw_pos, v2(0, -2.0)); // padding
+
+                            draw_text(font, title, font_height, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+
+                            current_y_pos = draw_pos.y;
+                        }
+
+                        {
+                            string text = STR("x%i");
+                            text = tprint(text, item->amount);
+
+                            Gfx_Text_Metrics metrics = measure_text(font, text, font_height, v2(0.1, 0.1));
+                            Vector2 draw_pos = v2(icon_center.x, current_y_pos);
+                            draw_pos = v2_sub(draw_pos, metrics.visual_pos_min);
+                            draw_pos = v2_add(draw_pos, v2_mul(metrics.visual_size, v2(-0.5, -1.0))); // top center
+
+                            draw_pos = v2_add(draw_pos, v2(0, -2.0)); // padding
+
+                            draw_text(font, text, font_height, draw_pos, v2(0.1, 0.1), COLOR_WHITE);
+                        }
+                    }
+
+                    slot_index++;
+                }
             }
         }
 
@@ -618,7 +747,8 @@ int entry(int argc, char **argv)
 
         input_axis = v2_normalize(input_axis);
 
-        player_entity->position = v2_add(player_entity->position, v2_mulf(input_axis, 25.0 * delta));
+        Vector2 target = v2_add(target, v2_mulf(input_axis, 25.0 * delta));
+        v2_animate_to_target(&player_entity->position, target, delta, 15.0);
 
         gfx_update();
     }
